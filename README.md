@@ -177,11 +177,37 @@ For a language no listed family covers well, any GGUF can be imported with
 `ollama create` and named in `config.json`. **Aya Expanse** and **Command-R** are
 CC-BY-NC — non-commercial use only.
 
-### Known limitation
+### Who asks you, and in what language
 
-The **interface** — menu, prompts, safety messages — is currently English. Only the model's
-explanations follow your language. That means the moments where you approve or refuse a
-command are still in English. Localising those strings is the next piece of work.
+The unconscious slot cannot address you — it only writes code. So when it produces a
+command, the **conscious slot asks you about it, in your language**, naming what the
+command will actually do:
+
+```
+find /var/log -name '*.gz' -delete
+  history: never asked about this before
+
+کیا میں /var/log سے پرانی لاگ فائلیں مستقل طور پر حذف کر دوں؟
+  [1] ایک بار چلائیں       (run it this time)
+  [2] نہ چلائیں            (do not run it)
+  [3] ہمیشہ اجازت دیں      (always permit this)
+  [4] کبھی اجازت نہ دیں    (never permit this)
+```
+
+The question is written fresh for that specific command, so it says *permanently delete
+old log files from /var/log* rather than a generic "run this?". Option labels are rendered
+once by the conscious model and cached — run `sysmind-sync localise` after install — with
+the English kept alongside as an anchor.
+
+Three rules keep this safe:
+
+- **Answers are digits.** No model reads what you typed; the digit → action mapping is in
+  code. A bad translation can confuse you; it cannot run the wrong thing.
+- **The literal command is always shown**, above the question, exactly as it will run.
+- **If the conscious slot is unreachable**, the cached generic prompt is used. You are
+  never left unable to be asked.
+
+Still English: the main menu and the installer wizard.
 
 ## Status
 

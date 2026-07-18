@@ -16,6 +16,7 @@ from sysmind_orbit import build_context
 from sysmind_display import render_dashboard
 from sysmind_sync import shell_syntax_ok
 from sysmind_turn import run_turn, needs_ollama
+import sysmind_strings as strings
 
 
 # Fence languages treated as runnable shell. A bare ``` is deliberately NOT
@@ -113,14 +114,15 @@ def query_ollama(model: str, context: str, language: str = "auto") -> str:
         return f"Error querying Ollama: {e}\n\nIs Ollama installed and the model downloaded? Run: ollama pull {model}"
 
 
-def execute_with_confirm(cmd: str, level: int, config: dict) -> None:
+def execute_with_confirm(cmd: str, level: int, config: dict,
+                         asked: str = None) -> None:
     blocklist_enabled = config.get("blocklist_enabled", True)
     approvals = config.get("approvals", {})
 
     # 0. Never offer something that is not valid shell. `bash -n` parses
     #    without executing, so this is safe to run on model output.
     if shell_syntax_ok(cmd) is False:
-        print("⚠️  Suggested command is not valid shell — skipped.")
+        print("⚠️  " + strings.load(config)["invalid_shell"])
         print(f"   {_display(cmd)}")
         return
 
@@ -131,9 +133,9 @@ def execute_with_confirm(cmd: str, level: int, config: dict) -> None:
     blocked = contains_blocked(cmd, blocklist_enabled, user_blocklist)
     if blocked:
         if blocked in user_blocklist:
-            print(f"✗ You previously refused this ('{blocked}').")
+            print(f"✗ {strings.load(config)['refused_before']} ('{blocked}').")
         else:
-            print(f"⚠️  Matches the shipped block list ('{blocked}').")
+            print(f"⚠️  {strings.load(config)['blocked_seed']} ('{blocked}').")
             print("   To drop the shipped defaults: blocklist_enabled: false")
         print(f"   {_display(cmd)}")
         print(f"   To allow it again, edit 'blocklist' in {CONFIG_FILE}")
@@ -144,7 +146,7 @@ def execute_with_confirm(cmd: str, level: int, config: dict) -> None:
     #    stay silent because it is the path that runs unattended.
     approved, reason = is_approved(cmd, level, approvals)
     if approved:
-        print(f"✓ Auto-approved ({reason}): {_display(cmd)}")
+        print(f"✓ {strings.load(config)['auto_approved']} ({reason}): {_display(cmd)}")
         print(f"$ {_display(cmd)}")
         os.system(cmd)
         log_usage(config, cmd)
@@ -161,16 +163,27 @@ def execute_with_confirm(cmd: str, level: int, config: dict) -> None:
         print("(Advisor mode — copy-paste to run manually)")
         return
     
-    print(f"\nRun: {_display(cmd)}")
-    print(f"  history: {format_history(config, cmd)}")
-    if tier == "base":
-        print(f"  Generic command — approving at base level")
-        confirm = input("Execute? [Y/n/always/never] (always = permit it, never = refuse it) ").strip().lower()
-    else:
-        print(f"  Specific command — approving at tertiary level")
+    S = strings.load(config)
+
+    print(f"\n{_display(cmd)}")
+    print(f"  {S['history']}: {format_history(config, cmd)}")
+    if tier != "base":
         print(f"  base: {base}  |  sub: {sub}  |  full: {full[:60]}")
-        confirm = input("Execute? [Y/n/always/never] (always = permit exactly this, never = refuse it) ").strip().lower()
-    
+
+    # The unconscious wants to run this; the conscious asks the human, in
+    # their language, about this specific command. The cached generic question
+    # is the fallback for when the conscious slot could not be reached.
+    print(f"\n{asked or S['ask_question']}")
+    for key, label in (("1", "opt_once"), ("2", "opt_no"),
+                       ("3", "opt_always"), ("4", "opt_never")):
+        print(strings.option_line(S, key, label))
+
+    # Digits, not words: the model renders the labels but never reads the
+    # answer, so a translation can confuse but cannot execute the wrong thing.
+    answer = input(f"{S['choose']} [1]: ").strip().lower()
+    confirm = {"1": "y", "2": "n", "3": "always", "4": "never",
+               "": "y"}.get(answer, answer)
+
     if confirm in ("y", "yes", ""):
         log_decision(config, cmd, "approved")
         print(f"$ {_display(cmd)}")
@@ -202,10 +215,10 @@ def execute_with_confirm(cmd: str, level: int, config: dict) -> None:
         # matched broadly, not into a mirror of the allow list.
         log_decision(config, cmd, "rejected")
         entry = save_block(config, cmd)
-        print(f"✗ Added to your block list: '{entry}'")
+        print(f"✗ {strings.load(config)['blocked_now']}: '{entry}'")
         print(f"   To undo, remove it from 'blocklist' in {CONFIG_FILE}")
     else:
-        print("Cancelled.")
+        print(strings.load(config)["cancelled"] + ".")
         log_decision(config, cmd, "rejected")
 
 
@@ -271,7 +284,8 @@ def main():
     context = build_context(query, atlas, budget)
 
     print("Thinking...")
-    response = run_turn(config, query, context)
+    turn = run_turn(config, query, context)
+    response = turn.response
     print("\n" + "=" * 50)
     print(response)
     print("=" * 50 + "\n")
@@ -280,7 +294,7 @@ def main():
     # command, however many lines it spans.
     if level >= 2:
         for cmd in extract_command_blocks(response):
-            execute_with_confirm(cmd, level, config)
+            execute_with_confirm(cmd, level, config, turn.asks.get(cmd))
 
 
 if __name__ == "__main__":

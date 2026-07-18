@@ -46,6 +46,20 @@ Explain in {language} what it does, and note anything risky about it.
 Do NOT output the command itself — it is shown to the user separately.
 Explain only."""
 
+# The unconscious cannot address the human, so its request to act is voiced by
+# the conscious slot, in the human's language, about this specific command.
+_ASK = """The user asked:
+{query}
+
+This command will run on their computer only if they agree:
+{command}
+
+What it does: {explanation}
+
+Write ONE short question in {language} asking whether to run it. Name the real
+effect on their system - if it deletes, installs or changes something, say so.
+Do not include the command itself. Output only the question."""
+
 
 def needs_ollama(config: Dict[str, Any]) -> bool:
     """True only if some slot actually uses a local Ollama backend."""
@@ -150,13 +164,41 @@ def explain(conscious: LLMPartner, command: str, query: str, language: str,
         return "(could not reach the conscious model to explain: {})".format(e)
 
 
+def compose_ask(conscious: LLMPartner, command: str, explanation: str,
+                query: str, language: str, timeout: float) -> Optional[str]:
+    """The conscious slot voices the unconscious slot's request for permission.
+
+    Returns None on any failure, so the caller falls back to the cached generic
+    prompt rather than losing the ability to ask at all.
+    """
+    lang = ("the same language the user wrote in"
+            if (language or "auto").lower() == "auto" else language)
+    try:
+        asked = sanitise_prose(conscious.complete(
+            _ASK.format(query=query, command=command, explanation=explanation,
+                        language=lang),
+            timeout=timeout))
+    except Exception:
+        return None
+    asked = " ".join(asked.split())
+    return asked[:300] if asked else None
+
+
+class Turn:
+    """One turn's output: what to show, and how to ask about each command."""
+
+    def __init__(self, response: str, asks: Optional[Dict[str, str]] = None):
+        self.response = response
+        self.asks = asks or {}
+
+
 def run_turn(config: Dict[str, Any], query: str, context: str,
              partners: Optional[Tuple[LLMPartner, LLMPartner]] = None,
-             timeout: float = 90.0) -> str:
-    """Run one full turn and return the response text for the executor.
+             timeout: float = 90.0) -> "Turn":
+    """Run one full turn.
 
-    The returned string is what sysmind's extractor parses, so any command in a
-    ```bash block here is what will be offered for execution.
+    Returns the response text the extractor parses, plus the conscious slot's
+    permission question for each command it contains.
     """
     conscious, unconscious, note = resolve_roles(config, partners)
     language = config.get("language", "auto")
@@ -167,24 +209,26 @@ def run_turn(config: Dict[str, Any], query: str, context: str,
     try:
         completion = unconscious.complete(header, timeout=timeout)
     except PartnerError as e:
-        return prefix + "The unconscious slot ({}) could not be reached: {}".format(
-            unconscious.metadata.name, e)
+        return Turn(prefix + "The unconscious slot ({}) could not be reached: {}".format(
+            unconscious.metadata.name, e))
     except Exception as e:
-        return prefix + "The unconscious slot failed: {}".format(e)
+        return Turn(prefix + "The unconscious slot failed: {}".format(e))
 
     command = extract_command(completion)
 
     if command is None:
         # Nothing runnable came back. Say so plainly rather than dressing up a
         # non-answer as one — and offer nothing to the executor.
-        return prefix + (
+        return Turn(prefix + (
             "The unconscious slot ({}) did not return a runnable command for:\n"
             "  {}\n\nIt replied:\n{}".format(
                 unconscious.metadata.name, header.strip(),
-                sanitise_prose(completion)[:600]))
+                sanitise_prose(completion)[:600])))
 
     explanation = explain(conscious, command, query, language, timeout)
+    asked = compose_ask(conscious, command, explanation, query, language, timeout)
 
     # The command is inserted here, verbatim, by code. The conscious model does
     # not get to write this block.
-    return "{}{}\n\n```bash\n{}\n```".format(prefix, explanation, command)
+    response = "{}{}\n\n```bash\n{}\n```".format(prefix, explanation, command)
+    return Turn(response, {command: asked} if asked else {})

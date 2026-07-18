@@ -532,6 +532,26 @@ def main() -> None:
     import sys
     cmd = sys.argv[1] if len(sys.argv) > 1 else "calibrate"
 
+    if cmd == "localise" or cmd == "localize":
+        import sysmind_strings as strings
+        from sysmind_common import save_config
+        config = load_config()
+        language = config.get("language", "auto")
+        if (language or "auto").strip().lower() in ("auto", "english"):
+            print("Language is '{}' - interface stays English.".format(language))
+            return
+        conscious, _ = partners_from_config(config)
+        print("Rendering the interface into {} via {}...".format(
+            language, conscious.metadata.name))
+        rendered = strings.localise(conscious, language)
+        strings.save(config, language, rendered)
+        save_config(config)
+        translated = sum(1 for k, v in rendered.items() if v != strings.BASE[k])
+        print("{}/{} strings translated.".format(translated, len(strings.BASE)))
+        for k in ("ask_question", "opt_once", "opt_no", "opt_always", "opt_never"):
+            print("  {:14} {}".format(k, rendered[k]))
+        return
+
     if cmd == "status":
         try:
             print(SyncProfile.load().summary)
