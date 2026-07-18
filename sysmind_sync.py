@@ -236,40 +236,20 @@ def standard_battery(language: str = "auto") -> List[SyncTest]:
     and PostgreSQL. This is 3-and-3 on Linux operations, plus an optional
     language probe when the user has pinned a non-English reply language.
     """
+    plat = sysmind_platform.CURRENT
     conscious = [
-        SyncTest("r1", "Triage Reasoning",
-                 "The root partition on a Debian laptop is 94% full. Explain how "
-                 "you would work out what is consuming it and what is safe to "
-                 "remove. Do not give commands, explain the approach.",
-                 PartnerRole.CONSCIOUS, weight=1.0),
-        SyncTest("r2", "Trade-off Analysis",
-                 "Compare running a periodic task as a systemd timer versus a "
-                 "cron job on a personal Linux machine. What are the practical "
-                 "consequences of each?",
-                 PartnerRole.CONSCIOUS, weight=1.0),
-        SyncTest("r3", "Failure Explanation",
-                 "A systemd service fails on boot but starts fine manually "
-                 "afterwards. Explain the likely causes and how you would "
-                 "narrow them down.",
-                 PartnerRole.CONSCIOUS, weight=1.0),
+        SyncTest("r{}".format(i + 1), "Reasoning {}".format(i + 1), prompt,
+                 PartnerRole.CONSCIOUS, weight=1.0)
+        for i, prompt in enumerate(plat.reasoning_tasks)
     ]
     # Completion-shaped, deliberately NOT instruction-shaped. A base code model
     # with no instruction tuning cannot obey "reply with the command only", but
     # it will complete a comment header natively. Instruct models handle this
     # form too, so one battery measures both without favouring either.
     unconscious = [
-        SyncTest("c1", "Disk Report",
-                 "# shell one-liner: print the ten largest directories under "
-                 "/var, human readable, largest first\n",
-                 PartnerRole.UNCONSCIOUS, weight=1.0, expect_shell=True),
-        SyncTest("c2", "Service Query",
-                 "# shell one-liner: show every systemd unit in a failed state, "
-                 "no pager, one per line\n",
-                 PartnerRole.UNCONSCIOUS, weight=1.0, expect_shell=True),
-        SyncTest("c3", "Package State",
-                 "# shell one-liner: list packages with available upgrades, "
-                 "then count them\n",
-                 PartnerRole.UNCONSCIOUS, weight=1.0, expect_shell=True),
+        SyncTest("c{}".format(i + 1), "Command {}".format(i + 1), prompt,
+                 PartnerRole.UNCONSCIOUS, weight=1.0, expect_shell=True)
+        for i, prompt in enumerate(plat.command_tasks)
     ]
 
     tests = conscious + unconscious

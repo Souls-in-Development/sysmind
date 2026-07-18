@@ -47,6 +47,15 @@ class Platform:
     # prose that merely parses.
     known_commands: Set[str]
 
+    # Where config and data live, by this OS's convention.
+    config_dir: List[str]      # path parts under the home directory
+    data_dir: List[str]
+
+    # Calibration probes. The unconscious battery must ask for THIS platform's
+    # dialect: a coder scored on bash is not scored on PowerShell.
+    reasoning_tasks: List[str]
+    command_tasks: List[str]
+
 
 LINUX = Platform(
     key="linux",
@@ -71,6 +80,25 @@ LINUX = Platform(
         "mv", "mkdir", "touch", "ln", "kill", "pkill", "pgrep", "nice", "renice",
         "timeout", "sudo", "env", "date", "sync", "mount", "lsblk", "blkid",
     },
+    config_dir=[".config", "sysmind"],
+    data_dir=[".local", "share", "sysmind"],
+    reasoning_tasks=[
+        "The root partition on a Debian laptop is 94% full. Explain how you "
+        "would work out what is consuming it and what is safe to remove. Do "
+        "not give commands, explain the approach.",
+        "Compare running a periodic task as a systemd timer versus a cron job "
+        "on a personal Linux machine. What are the practical consequences?",
+        "A systemd service fails on boot but starts fine manually afterwards. "
+        "Explain the likely causes and how you would narrow them down.",
+    ],
+    command_tasks=[
+        "# shell one-liner: print the ten largest directories under /var, "
+        "human readable, largest first\n",
+        "# shell one-liner: show every systemd unit in a failed state, no "
+        "pager, one per line\n",
+        "# shell one-liner: list packages with available upgrades, then count "
+        "them\n",
+    ],
 )
 
 # PowerShell's parser exposes ParseInput, which populates an error list without
@@ -108,6 +136,26 @@ WINDOWS = Platform(
         "winget", "dism", "sfc", "chkdsk", "ipconfig", "netstat", "tasklist",
         "systeminfo", "dir", "type", "findstr", "where", "sc", "reg",
     },
+    config_dir=["AppData", "Roaming", "sysmind"],
+    data_dir=["AppData", "Local", "sysmind"],
+    reasoning_tasks=[
+        "The system drive on a Windows laptop is 94% full. Explain how you "
+        "would work out what is consuming it and what is safe to remove. Do "
+        "not give commands, explain the approach.",
+        "Compare running a periodic job as a Scheduled Task versus a Windows "
+        "service on a personal machine. What are the practical consequences?",
+        "A Windows service set to Automatic fails at boot but starts fine "
+        "manually afterwards. Explain the likely causes and how you would "
+        "narrow them down.",
+    ],
+    command_tasks=[
+        "# PowerShell one-liner: list the ten largest folders under "
+        "C:\\ProgramData, largest first\n",
+        "# PowerShell one-liner: show every automatic service that is not "
+        "running, one per line\n",
+        "# PowerShell one-liner: list available package upgrades with winget, "
+        "then count them\n",
+    ],
 )
 
 UNKNOWN = Platform(
@@ -119,6 +167,10 @@ UNKNOWN = Platform(
     fences=set(),
     blocklist_seed=set(),
     known_commands=set(),
+    config_dir=[".config", "sysmind"],
+    data_dir=[".local", "share", "sysmind"],
+    reasoning_tasks=[],
+    command_tasks=[],
 )
 
 PROFILES = {p.key: p for p in (LINUX, WINDOWS)}

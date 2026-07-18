@@ -1,198 +1,75 @@
-"""System atlas scanner. Builds manifest of Parrot OS state."""
+"""System atlas scanner. Dispatches to the probe module for this platform.
+
+The probes are the one part of platform support that cannot be a table entry:
+parsing `df -h` is the output format, not just the command name. So each OS
+gets a module implementing the same function names and return shapes, and this
+file holds only what is genuinely shared — the alert rules and the assembly.
+
+  sysmind_scan_linux    tested, the reference implementation
+  sysmind_scan_windows  written from documentation, never run
+"""
 import json
-import subprocess
-import time
 from datetime import datetime, timezone
-from pathlib import Path
 from typing import Any, Dict, List
 
-from sysmind_common import run_cmd, ATLAS_FILE, ensure_dirs
+import sysmind_platform
+from sysmind_common import ATLAS_FILE, ensure_dirs
 
+if sysmind_platform.CURRENT.key == "windows":
+    import sysmind_scan_windows as probes
+else:
+    import sysmind_scan_linux as probes
 
-def get_system_info() -> Dict[str, Any]:
-    info = {}
-    try:
-        r = run_cmd(["uname", "-a"], check=False)
-        info["kernel"] = r.stdout.strip()
-    except Exception:
-        info["kernel"] = "unknown"
-    try:
-        with open("/etc/os-release") as f:
-            lines = f.read().splitlines()
-            info["os"] = next((l.split("=", 1)[1].strip('"') for l in lines if l.startswith("PRETTY_NAME")), "unknown")
-    except Exception:
-        info["os"] = "unknown"
-    try:
-        r = run_cmd(["uptime", "-p"], check=False)
-        info["uptime"] = r.stdout.strip()
-    except Exception:
-        info["uptime"] = "unknown"
-    return info
+PLATFORM = probes.NAME
 
-
-def get_packages() -> Dict[str, Any]:
-    result = {"installed": 0, "upgradable": 0, "orphaned": 0}
-    try:
-        r = run_cmd(["dpkg-query", "-W"], check=False)
-        result["installed"] = len(r.stdout.strip().splitlines()) if r.stdout else 0
-    except Exception:
-        pass
-    try:
-        r = run_cmd(["apt", "list", "--upgradable"], check=False)
-        lines = [l for l in r.stdout.splitlines() if l.strip() and not l.startswith("Listing")]
-        result["upgradable"] = len(lines)
-    except Exception:
-        pass
-    return result
-
-
-def get_services() -> Dict[str, Any]:
-    result = {"running": 0, "failed": 0, "enabled": 0, "listening_ports": []}
-    try:
-        r = run_cmd(["systemctl", "list-units", "--type=service", "--state=running", "--no-pager"], check=False)
-        result["running"] = len([l for l in r.stdout.splitlines() if ".service" in l])
-    except Exception:
-        pass
-    try:
-        r = run_cmd(["systemctl", "list-units", "--type=service", "--state=failed", "--no-pager"], check=False)
-        failed = [l.split()[0] for l in r.stdout.splitlines() if ".service" in l]
-        result["failed"] = len(failed)
-        result["failed_services"] = failed[:10]
-    except Exception:
-        result["failed_services"] = []
-    try:
-        r = run_cmd(["ss", "-tlnp"], check=False)
-        ports = []
-        for line in r.stdout.splitlines()[1:]:
-            parts = line.split()
-            if len(parts) >= 4:
-                local = parts[3]
-                if ":" in local:
-                    port = local.split(":")[-1]
-                    if port.isdigit():
-                        ports.append(int(port))
-        result["listening_ports"] = sorted(set(ports))
-    except Exception:
-        pass
-    return result
-
-
-def get_resources() -> Dict[str, Any]:
-    result = {}
-    try:
-        r = run_cmd(["df", "-h", "/"], check=False)
-        lines = r.stdout.strip().splitlines()
-        if len(lines) >= 2:
-            parts = lines[1].split()
-            result["disk_root_percent"] = int(parts[4].rstrip("%"))
-            result["disk_root_size"] = parts[1]
-            result["disk_root_avail"] = parts[3]
-    except Exception:
-        result["disk_root_percent"] = 0
-    try:
-        r = run_cmd(["free", "-m"], check=False)
-        lines = r.stdout.strip().splitlines()
-        if lines:
-            mem = lines[1].split()
-            total = int(mem[1])
-            used = int(mem[2])
-            result["memory_percent"] = int(used / total * 100) if total else 0
-            result["memory_mb"] = used
-    except Exception:
-        result["memory_percent"] = 0
-    try:
-        r = run_cmd(["cat", "/proc/loadavg"], check=False)
-        result["load"] = float(r.stdout.strip().split()[0])
-    except Exception:
-        result["load"] = 0.0
-    return result
-
-
-def get_security(paranoia: str = "medium") -> Dict[str, Any]:
-    result = {"open_ports": [], "recent_logins": [], "suid_bins": []}
-    try:
-        r = run_cmd(["ss", "-tlnp"], check=False)
-        ports = []
-        for line in r.stdout.splitlines()[1:]:
-            parts = line.split()
-            if len(parts) >= 4:
-                local = parts[3]
-                if ":" in local:
-                    port = local.split(":")[-1]
-                    if port.isdigit():
-                        ports.append(int(port))
-        result["open_ports"] = sorted(set(ports))
-    except Exception:
-        pass
-    try:
-        r = run_cmd(["last", "-n", "5"], check=False)
-        result["recent_logins"] = [l.strip() for l in r.stdout.splitlines()[:5] if l.strip()]
-    except Exception:
-        pass
-    if paranoia in ("medium", "high"):
-        try:
-            r = run_cmd(["find", "/usr", "-perm", "-4000", "-type", "f"], check=False)
-            result["suid_bins"] = r.stdout.strip().splitlines()[:20]
-        except Exception:
-            pass
-    return result
-
-
-def get_configs() -> List[str]:
-    try:
-        r = run_cmd(["find", "/etc", "-type", "f", "-mtime", "-7"], check=False)
-        return r.stdout.strip().splitlines()[:50]
-    except Exception:
-        return []
-
-
-def get_logs() -> List[str]:
-    try:
-        r = run_cmd(["journalctl", "--priority=3", "--since=yesterday", "--no-pager"], check=False)
-        lines = r.stdout.strip().splitlines()
-        return lines[-30:] if len(lines) > 30 else lines
-    except Exception:
-        return []
-
-
-def get_parrot_specific() -> Dict[str, Any]:
-    result = {}
-    try:
-        r = run_cmd(["which", "anonsurf"], check=False)
-        result["anonsurf_available"] = r.returncode == 0
-    except Exception:
-        result["anonsurf_available"] = False
-    try:
-        r = run_cmd(["which", "firejail"], check=False)
-        result["firejail_available"] = r.returncode == 0
-    except Exception:
-        result["firejail_available"] = False
-    return result
+# Re-exported so callers and tests can reach the probes without knowing which
+# module answered.
+get_system_info = probes.get_system_info
+get_packages = probes.get_packages
+get_services = probes.get_services
+get_resources = probes.get_resources
+get_security = probes.get_security
+get_configs = probes.get_configs
+get_logs = probes.get_logs
+get_platform_extras = probes.get_platform_extras
 
 
 def compute_alerts(data: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """Alert rules. Deliberately platform-independent: a full disk is a full
+    disk, and these read only the normalised values the probes return."""
     alerts = []
     res = data.get("resources", {})
     if res.get("disk_root_percent", 0) > 80:
-        alerts.append({"level": "warn", "category": "disk", "message": f"Root partition {res['disk_root_percent']}% full"})
+        alerts.append({"level": "warn", "category": "disk",
+                       "message": f"Root partition {res['disk_root_percent']}% full"})
     if res.get("memory_percent", 0) > 85:
-        alerts.append({"level": "warn", "category": "memory", "message": f"Memory usage {res['memory_percent']}%"})
+        alerts.append({"level": "warn", "category": "memory",
+                       "message": f"Memory usage {res['memory_percent']}%"})
     pkg = data.get("packages", {})
     if pkg.get("upgradable", 0) > 0:
-        alerts.append({"level": "info", "category": "packages", "message": f"{pkg['upgradable']} packages can be upgraded"})
+        alerts.append({"level": "info", "category": "packages",
+                       "message": f"{pkg['upgradable']} packages can be upgraded"})
     svc = data.get("services", {})
     if svc.get("failed", 0) > 0:
         failed_list = svc.get("failed_services", [])
-        alerts.append({"level": "warn", "category": "services", "message": f"{svc['failed']} failed services: {', '.join(failed_list[:3])}"})
+        alerts.append({"level": "warn", "category": "services",
+                       "message": f"{svc['failed']} failed services: "
+                                  f"{', '.join(failed_list[:3])}"})
     sec = data.get("security", {})
     if 22 in sec.get("open_ports", []):
-        alerts.append({"level": "info", "category": "security", "message": "SSH port (22) is open"})
+        alerts.append({"level": "info", "category": "security",
+                       "message": "SSH port (22) is open"})
+    if 3389 in sec.get("open_ports", []):
+        alerts.append({"level": "info", "category": "security",
+                       "message": "Remote Desktop port (3389) is open"})
     return alerts
 
 
 def scan(paranoia: str = "medium") -> Dict[str, Any]:
     data = {
         "generated_at": datetime.now(timezone.utc).isoformat(),
+        "platform": PLATFORM,
+        "platform_tested": sysmind_platform.CURRENT.tested,
         "system": get_system_info(),
         "packages": get_packages(),
         "services": get_services(),
@@ -200,8 +77,10 @@ def scan(paranoia: str = "medium") -> Dict[str, Any]:
         "security": get_security(paranoia),
         "configs_modified": get_configs(),
         "recent_logs": get_logs(),
-        "parrot": get_parrot_specific(),
+        "platform_extras": get_platform_extras(),
     }
+    # Old atlases used "parrot"; kept so an existing file still reads.
+    data["parrot"] = data["platform_extras"]
     data["alerts"] = compute_alerts(data)
     return data
 
@@ -214,6 +93,8 @@ def main():
     with open(ATLAS_FILE, "w") as f:
         json.dump(data, f, indent=2)
     print(f"Atlas written to {ATLAS_FILE}")
+    print(f"Platform: {data['platform']}"
+          f"{'' if data['platform_tested'] else '  (UNTESTED on this OS)'}")
     print(f"Alerts: {len(data['alerts'])}")
     for a in data["alerts"]:
         print(f"  [{a['level']}] {a['message']}")

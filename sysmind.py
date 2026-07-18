@@ -95,11 +95,20 @@ MENU_MAP = {
 
 
 def check_ollama() -> bool:
-    try:
-        r = run_cmd(["which", "ollama"], check=False)
-        return r.returncode == 0
-    except Exception:
-        return False
+    # shutil.which works on every OS; `which` is a Unix command that does not
+    # exist on Windows.
+    import shutil
+    return shutil.which("ollama") is not None
+
+
+def _run(cmd: str) -> int:
+    """Run through THIS platform's shell.
+
+    os.system() hands the string to whatever the ambient shell is - cmd.exe on
+    Windows - which would quietly reinterpret a command written for another
+    dialect instead of failing plainly.
+    """
+    return subprocess.run(sysmind_platform.CURRENT.shell + [cmd]).returncode
 
 
 def query_ollama(model: str, context: str, language: str = "auto") -> str:
@@ -160,7 +169,7 @@ def execute_with_confirm(cmd: str, level: int, config: dict,
     if approved:
         print(f"✓ {strings.load(config)['auto_approved']} ({reason}): {_display(cmd)}")
         print(f"$ {_display(cmd)}")
-        os.system(cmd)
+        _run(cmd)
         log_usage(config, cmd)
         return
 
@@ -199,7 +208,7 @@ def execute_with_confirm(cmd: str, level: int, config: dict,
     if confirm in ("y", "yes", ""):
         log_decision(config, cmd, "approved")
         print(f"$ {_display(cmd)}")
-        os.system(cmd)
+        _run(cmd)
         log_usage(config, cmd)
         # Offered only here: a human answered, so a human is present. Never on
         # the auto path, which must stay silent and unattended-safe.
@@ -220,7 +229,7 @@ def execute_with_confirm(cmd: str, level: int, config: dict,
         key = save_approval(config, cmd, scope, level)
         print(f"✓ Permitted at {scope} level '{key}' for level {level}+")
         print(f"$ {_display(cmd)}")
-        os.system(cmd)
+        _run(cmd)
         log_usage(config, cmd)
     elif confirm in ("never", "x"):
         # The human makes 'no' known — it goes on the block list, where it is

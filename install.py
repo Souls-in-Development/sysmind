@@ -8,8 +8,10 @@ from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).parent.resolve()
 BIN_DIR = Path.home() / ".local" / "bin"
-CONFIG_DIR = Path.home() / ".config" / "sysmind"
-DATA_DIR = Path.home() / ".local" / "share" / "sysmind"
+import sysmind_platform as _plat
+
+CONFIG_DIR = Path.home().joinpath(*_plat.CURRENT.config_dir)
+DATA_DIR = Path.home().joinpath(*_plat.CURRENT.data_dir)
 LIB_DIR = DATA_DIR / "lib"
 
 # Installed by pip? Then the modules are already importable and the console
@@ -69,7 +71,8 @@ import sysmind_i18n as i18n
 SCRIPTS = ["sysmind.py", "sysmind_scan.py", "sysmind_orbit.py", "sysmind_display.py",
            "sysmind_common.py", "sysmind_doctor.py", "sysmind_partners.py",
            "sysmind_sync.py", "sysmind_turn.py", "sysmind_strings.py",
-           "sysmind_i18n.py"]
+           "sysmind_i18n.py", "sysmind_platform.py",
+           "sysmind_scan_linux.py", "sysmind_scan_windows.py"]
 
 
 _CHOICE = ["Choice", "default"]   # localised once the language is known
@@ -102,6 +105,35 @@ def ask_text(question: str, default: str = "") -> str:
 
 
 def detect_ram() -> str:
+    if sys.platform.startswith("win"):
+        # No /proc. GlobalMemoryStatusEx via ctypes, no dependencies.
+        try:
+            import ctypes
+
+            class _MS(ctypes.Structure):
+                _fields_ = [("dwLength", ctypes.c_ulong),
+                            ("dwMemoryLoad", ctypes.c_ulong),
+                            ("ullTotalPhys", ctypes.c_ulonglong),
+                            ("ullAvailPhys", ctypes.c_ulonglong),
+                            ("ullTotalPageFile", ctypes.c_ulonglong),
+                            ("ullAvailPageFile", ctypes.c_ulonglong),
+                            ("ullTotalVirtual", ctypes.c_ulonglong),
+                            ("ullAvailVirtual", ctypes.c_ulonglong),
+                            ("ullAvailExtendedVirtual", ctypes.c_ulonglong)]
+
+            st = _MS()
+            st.dwLength = ctypes.sizeof(_MS)
+            ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(st))
+            gb = st.ullTotalPhys / (1024 ** 3)
+            if gb < 5:
+                return "4gb"
+            if gb < 12:
+                return "8gb"
+            if gb < 24:
+                return "16gb"
+            return "32gb"
+        except Exception:
+            return "8gb"
     try:
         with open("/proc/meminfo") as f:
             for line in f:
@@ -240,9 +272,10 @@ def install():
     with open(CONFIG_DIR / "config.json", "w") as f:
         json.dump(config, f, indent=2)
 
-    if not PIP_INSTALLED:
-        # Source-tree install: copy the modules somewhere stable and make
-        # wrappers. Under pip both are already done by the package manager.
+    if not PIP_INSTALLED and not sys.platform.startswith("win"):
+        # Source-tree install on Unix: copy the modules somewhere stable and
+        # make shell wrappers. Under pip the package manager does both, and on
+        # Windows a #!/bin/bash wrapper is meaningless - use pip there.
         for script in SCRIPTS:
             src = PROJECT_ROOT / script
             if src.exists():

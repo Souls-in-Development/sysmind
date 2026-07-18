@@ -49,6 +49,9 @@ py-modules = [
     "sysmind_orbit",
     "sysmind_display",
     "sysmind_doctor",
+    "sysmind_platform",
+    "sysmind_scan_linux",
+    "sysmind_scan_windows",
     "install",
 ]
 

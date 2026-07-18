@@ -9,8 +9,8 @@ from typing import Any, Dict, List, Optional, Tuple
 import sysmind_platform
 
 # Paths
-CONFIG_DIR = Path.home() / ".config" / "sysmind"
-DATA_DIR = Path.home() / ".local" / "share" / "sysmind"
+CONFIG_DIR = Path.home().joinpath(*sysmind_platform.CURRENT.config_dir)
+DATA_DIR = Path.home().joinpath(*sysmind_platform.CURRENT.data_dir)
 CONFIG_FILE = CONFIG_DIR / "config.json"
 ATLAS_FILE = DATA_DIR / "atlas.json"
 BACKUP_DIR = DATA_DIR / "backups"
