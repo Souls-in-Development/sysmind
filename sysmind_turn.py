@@ -26,20 +26,23 @@ _FENCE = re.compile(r"```[^\n]*\n(.*?)```", re.DOTALL)
 
 # Kept short deliberately: a small local model follows one instruction better
 # than five, and this one has to work for models that barely follow any.
-_COMPOSE = """{context}
-
-The user asked, in their own words:
+_COMPOSE = """THE USER ASKED, IN THEIR OWN WORDS:
 {query}
 
-Write ONE English comment line naming the shell task they want, exactly like:
+Background on their machine, for reference only. Do NOT answer a question
+about this that they did not ask - a striking number here does not change
+what they wanted to know:
+{context}
+
+Write ONE English comment line naming the shell task THE USER asked for,
+exactly like:
 # shell one-liner: <what to do>
 
 Rules, in order of importance:
 
-1. If the request is vague, ask for a command that LOOKS, never one that
-   changes anything. "disk is full" means "list the largest directories",
-   not "delete temporary files". The user can ask to remove something
-   specific once they have seen what is there.
+1. If the request is vague, ask for a command that only INSPECTS - one that
+   displays, lists or counts. Never one that deletes, moves or modifies.
+   The user can ask for a specific change once they have seen the state.
 2. Answer the question the user actually asked. Do not substitute a
    different task.
 3. Describe the task in plain words rather than writing shell yourself.
