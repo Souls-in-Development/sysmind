@@ -136,6 +136,26 @@ def compose_coder_prompt(conscious: LLMPartner, query: str, context: str,
     return "# shell one-liner: {}\n".format(" ".join(query.split()))
 
 
+# Things a model writes when it means "put your own value here". A command
+# containing one of these parses fine and looks like a command, so neither
+# `bash -n` nor looks_like_command() rejects it - but running it does nothing
+# useful. Worse, it still gets explained and asked about as if it were real,
+# so the human approves something meaningless. Observed in a live run:
+# `du -sh /path/to/directory/*`.
+_PLACEHOLDER = re.compile(
+    r"/path/to/|/path_to/|<[^>]{1,40}>|\{\{?[a-z_]+\}?\}|"
+    r"\byour[-_/]|\bYOUR_|\bexample\.(com|org|net)\b|"
+    r"\b(foo|bar|baz)\b|/dir/|/directory/|"
+    r"\b(replace|insert|specify)[-_ ](this|with|your)\b",
+    re.IGNORECASE)
+
+
+def has_placeholder(cmd: str) -> Optional[str]:
+    """Return the placeholder text found in a command, else None."""
+    m = _PLACEHOLDER.search(cmd)
+    return m.group(0) if m else None
+
+
 def extract_command(text: str) -> Optional[str]:
     """Pull a runnable command out of the coder's completion.
 
@@ -150,8 +170,13 @@ def extract_command(text: str) -> Optional[str]:
         # Drop any leading comment lines the model echoed back.
         body = "\n".join(ln for ln in cand.splitlines()
                          if not ln.strip().startswith("#")).strip()
-        if body and looks_like_command(body) and shell_syntax_ok(body) is not False:
-            return body
+        if not body or not looks_like_command(body):
+            continue
+        if shell_syntax_ok(body) is False:
+            continue
+        if has_placeholder(body):
+            continue        # a template, not a command the user can approve
+        return body
     return None
 
 
