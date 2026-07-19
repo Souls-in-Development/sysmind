@@ -4,6 +4,14 @@ A local-AI companion for managing your Linux (Parrot OS) machine — updates, di
 security, services — in your own language. Ask in English, Urdu, Arabic, whatever you
 think in, and it replies in kind. Commands stay valid shell, always.
 
+> **Platforms.** Linux is the supported platform and the only one with evidence behind it.
+> **Windows support is written but has never been run** — PowerShell command generation, a
+> Windows-specific block list, `AppData` paths and a PowerShell syntax checker all ship, and
+> the code marks itself `tested=False`. If you have a Windows machine, trying it and
+> reporting back is genuinely useful. Treat it as an invitation, not a supported platform.
+> macOS is not supported: it will start, but the system probes are Linux commands and return
+> nothing.
+
 ## Two minds, not one
 
 Sysmind runs **two models in two slots**, because no small model is good at both speaking
@@ -138,11 +146,17 @@ the automatic path, which stays silent.
 
 ## Safety
 
-- Every suggested command is parsed with `bash -n` before you are offered it. Invalid shell
-  is discarded, never shown as runnable.
+- Every suggested command is parsed before you are offered it — `bash -n` on Linux,
+  PowerShell's own parser on Windows. Both read the command without executing it. Anything
+  that does not parse is discarded, never shown as runnable.
+- **The check fails closed.** If no parser is available at all, nothing is offered rather
+  than everything being waved through unverified.
 - A fenced block is **one** command, however many lines it spans. A `for` loop runs as a
   loop, not as three broken fragments.
-- Only `bash`/`sh`/`shell`/`zsh`/`console` fences are treated as runnable. A bare fence is not.
+- Only the fence languages that are runnable on your platform count — `bash`/`sh`/`zsh` on
+  Linux, `powershell`/`ps1`/`cmd` on Windows. A bare fence is never runnable.
+- Commands containing placeholders (`/path/to/…`, `<name>`, `YOUR_KEY`) are rejected. They
+  parse fine and look like commands, so nothing else catches them.
 
 ## Commands
 
