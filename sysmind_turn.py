@@ -34,6 +34,20 @@ The user asked, in their own words:
 Write ONE English comment line naming the shell task they want, exactly like:
 # shell one-liner: <what to do>
 
+Rules, in order of importance:
+
+1. If the request is vague, ask for a command that LOOKS, never one that
+   changes anything. "disk is full" means "list the largest directories",
+   not "delete temporary files". The user can ask to remove something
+   specific once they have seen what is there.
+2. Answer the question the user actually asked. Do not substitute a
+   different task.
+3. Describe the task in plain words rather than writing shell yourself.
+4. Be concrete about the target: name the actual path, unit or package.
+5. Never use vague verbs like clean, free up, fix, tidy, sort out, or
+   handle. They produce destructive commands. Say exactly what to display,
+   list, count, or restart.
+
 Output only that single line."""
 
 _EXPLAIN = """The user asked:
